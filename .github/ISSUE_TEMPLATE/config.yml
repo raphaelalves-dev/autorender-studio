@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Política de segurança
+    url: https://github.com/raphaelalves-dev/autorender-studio/security/policy
+    about: Consulte as orientações antes de relatar um problema sensível.

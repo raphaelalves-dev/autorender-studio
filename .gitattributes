@@ -1,0 +1,19 @@
+* text=auto
+
+*.py text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.svg text eol=lf
+*.toml text eol=lf
+*.bat text eol=crlf
+*.iss text eol=crlf
+
+*.ico binary
+*.mp4 binary
+*.mov binary
+*.mkv binary
+*.exe binary
+*.dll binary
+*.zip binary

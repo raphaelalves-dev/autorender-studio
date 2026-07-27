@@ -1,0 +1,25 @@
+name: Sugerir uma melhoria
+description: Proponha um novo recurso ou melhoria de fluxo.
+title: "[Melhoria] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Qual problema a melhoria resolve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Solução sugerida
+      description: Explique como o recurso deveria funcionar.
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impacto no fluxo atual
+      description: Informe se afeta presets, renderização, entrega ou interface.

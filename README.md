@@ -1,170 +1,250 @@
-# AutoRender Studio v1.2.4
+<p align="center">
+  <img src="docs/images/autorender-studio-banner.svg" alt="AutoRender Studio" width="100%">
+</p>
 
-Sistema de renderização automática de vídeos com presets personalizados.
+<p align="center">
+  <a href="https://www.python.org/"><img alt="Python 3.11+" src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white"></a>
+  <img alt="Windows 10 e 11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?logo=windows&logoColor=white">
+  <img alt="FFmpeg" src="https://img.shields.io/badge/FFmpeg-NVENC%20%7C%20AMF%20%7C%20CPU-007808?logo=ffmpeg&logoColor=white">
+  <a href="https://github.com/raphaelalves-dev/autorender-studio/actions/workflows/tests.yml"><img alt="Testes" src="https://github.com/raphaelalves-dev/autorender-studio/actions/workflows/tests.yml/badge.svg"></a>
+  <img alt="Versão 1.2.4" src="https://img.shields.io/badge/vers%C3%A3o-1.2.4-7C3AED">
+  <a href="LICENSE.md"><img alt="Licença proprietária" src="https://img.shields.io/badge/licen%C3%A7a-propriet%C3%A1ria-111827"></a>
+</p>
 
-Esta é a versão de código-fonte preparada para o GitHub. Arquivos locais, vídeos,
-presets, executáveis do FFmpeg, builds, instaladores, logs e configurações da
-máquina não fazem parte do repositório.
+<p align="center">
+  Automação desktop para monitorar entradas, validar mídias, aplicar presets e entregar vídeos renderizados com FFmpeg.
+</p>
 
-## Estrutura do Projeto
+> Software proprietário da **Clicks da Serra**. Desenvolvido por **Raphael Alves**.
 
-```
-AutoRenderStudio/
-├── backend/           # Código fonte Python (lógica de renderização)
-├── frontend/          # Interface gráfica
-├── config/            # Arquivos de configuração
-├── bin/               # Coloque FFmpeg e FFprobe localmente
-├── preset/            # Coloque os presets de vídeo localmente
-├── entrada/           # Pasta para vídeos de entrada
-├── saida/             # Pasta para vídeos renderizados
-├── logs/              # Logs de execução
-├── processados/       # Vídeos processados
-├── erros/             # Vídeos com erro
-├── .venv/             # Ambiente virtual Python
-└── AutoRenderPreset_GUI.py  # Arquivo principal
-```
+## Visão geral
 
-## Arquivos de Build e Teste
+O AutoRender Studio transforma uma estrutura de pastas em um fluxo de produção
+automatizado. O aplicativo identifica lotes de vídeos, valida os arquivos com
+FFprobe, aplica presets personalizados e organiza a entrega dos resultados sem
+exigir operação manual a cada render.
 
-### 1. INSTALAR.bat
-**Descrição:** Instala as dependências necessárias
-- Cria ambiente virtual Python (.venv)
-- Instala watchdog e pyinstaller
-- Prepara o ambiente para desenvolvimento
+A interface foi criada para uso contínuo em Windows, com monitoramento do
+servidor em segundo plano, histórico, recuperação de falhas e opções de
+aceleração por GPU.
 
-**Como usar:**
-```
-INSTALAR.bat
-```
+## Arquitetura
 
-### 2. TESTAR_SEM_HISTORICO.bat
-**Descrição:** Executa o aplicativo em modo teste sem salvar histórico
-- Ativa o ambiente virtual
-- Verifica FFmpeg
-- Executa a interface gráfica
-
-**Como usar:**
-```
-TESTAR_SEM_HISTORICO.bat
+```mermaid
+flowchart LR
+    E["Entrada local ou diária"] --> W["Monitoramento e validação"]
+    W --> Q["Fila de renderização"]
+    Q --> F["FFmpeg + FFprobe"]
+    P["Presets MOV"] --> F
+    F --> S["Staging local"]
+    S --> O["Saída local ou servidor"]
+    W --> X["Quarentena"]
+    F --> H["Histórico e logs"]
 ```
 
-### 3. BUILD_EXE_PORTABLE.bat
-**Descrição:** Cria executável portátil (.exe)
-- Usa PyInstaller para criar o executável
-- Gera pasta dist/AutoRenderPreset/ com todos os arquivos
-- Inclui todas as dependências necessárias
+## Casos de uso
 
-**Como usar:**
-```
-BUILD_EXE_PORTABLE.bat
-```
-**Saída:** `dist/AutoRenderPreset/AutoRenderPreset.exe`
+- renderização automática de vídeos recebidos por pastas;
+- composição de pares de câmeras 81 e 82;
+- aplicação individual de preset em câmeras 81 a 86;
+- processamento de lotes criados por ciclos automáticos ou manuais;
+- entrega em servidor com staging local;
+- estações Windows dedicadas à produção contínua.
 
-### 4. BUILD_INSTALLER_COM_SENHA.bat
-**Descrição:** Cria o EXE portátil e depois o instalador com senha usando Inno Setup
-- Requer Inno Setup instalado
-- Executa o build do PyInstaller automaticamente
-- Pede a senha do instalador na hora
-- Gera instalador protegido por senha
-- Coloca o instalador na pasta output/
-- Aceita Inno Setup 7, 6 ou 5
+## Recursos
 
-**Como usar:**
-```
-BUILD_INSTALLER_COM_SENHA.bat
-```
-**Saída:** `output/AutoRenderStudio_Setup_1.2.4.exe` e, se necessário por tamanho, arquivos `.bin` junto.
+### Automação
 
-### 5. AutoRenderStudio_Setup.iss
-**Descrição:** Script de configuração do Inno Setup
-- Define estrutura do instalador
-- Configura senha de proteção
-- Especifica arquivos a incluir
+- monitoramento contínuo com `watchdog`;
+- entrada e saída por pastas diárias configuráveis;
+- prioridade para lotes `*_AUTO`, `*_MANUAL_TODAS`, `Manual` e `Manual_Retry`;
+- inicialização com o Windows e execução automática opcionais;
+- até dois renders simultâneos.
 
-## Fluxo de Trabalho Recomendado
+### Renderização
 
-### Para Desenvolvimento/Teste:
-1. Execute `INSTALAR.bat` (primeira vez)
-2. Execute `TESTAR_SEM_HISTORICO.bat` para testar
+- composição com presets MOV;
+- chroma key, escala, crop, posicionamento e fundo desfocado;
+- seleção automática entre NVIDIA NVENC, AMD AMF e CPU `libx264`;
+- limite de duração e parâmetros de áudio configuráveis;
+- remoção de saídas parciais quando um render falha.
 
-### Para Criar Versão Portátil:
-1. Execute `BUILD_EXE_PORTABLE.bat`
-2. A pasta `dist/AutoRenderPreset/` conterá o executável e todos os arquivos
-3. Distribua toda a pasta
+### Confiabilidade
 
-### Para Criar Instalador:
-1. Instale Inno Setup: https://jrsoftware.org/isinfo.php
-2. Execute `BUILD_INSTALLER_COM_SENHA.bat`
-3. Digite a senha desejada quando o script pedir
-4. Envie todos os arquivos `AutoRenderStudio_Setup_*` gerados em `output/`
+- validação com FFprobe antes de iniciar o processamento;
+- espera controlada por arquivos ainda em cópia;
+- histórico salvo de forma atômica;
+- retomada de itens cuja saída desapareceu;
+- quarentena automática após tentativas inválidas;
+- limpeza diária de processados e quarentena;
+- rotação de logs com retenção limitada.
 
-### Checagem antes de produção:
-```
-CHECK_PROD.bat
-```
+### Entrega e interface
 
-Essa checagem valida sintaxe, FFmpeg, FFprobe, encoder NVIDIA/AMD/CPU, presets e Inno Setup sem recriar o pacote pesado.
-
-## Requisitos
-
-- Python 3.11 ou superior
-- FFmpeg e FFprobe adicionados localmente em `bin/`
-- Presets adicionados localmente em `preset/`
-- Windows 10 ou superior
-- Inno Setup 7 ou 6 (apenas para criar instalador)
-
-## Após baixar ou clonar
-
-1. Execute `INSTALAR.bat`.
-2. Coloque `ffmpeg.exe` e `ffprobe.exe` em `bin/`.
-3. Coloque os presets `.mov` em `preset/`.
-4. Execute `TESTAR_SEM_HISTORICO.bat`.
-
-Na primeira execução, o aplicativo cria `config/settings.json` com caminhos
-adequados à máquina local. Esse arquivo não é enviado ao GitHub.
-
-## Dependências Python
-
-```
-watchdog>=4.0.0
-pyinstaller>=6.0.0
-```
-
-## Pastas Importantes
-
-- **bin/**: Contém FFmpeg - OBRIGATÓRIO para renderização
-- **preset/**: Contém presets de vídeo - OBRIGATÓRIO para funcionamento
-- **entrada/**: Coloque os vídeos aqui para processar
-- **saida/**: Vídeos renderizados aparecerão aqui
-- **logs/**: Histórico de execução e erros
+- staging local antes da cópia para outro disco ou servidor;
+- preservação da pasta de origem do ciclo;
+- cartões independentes para entrada e destino;
+- verificação do servidor em segundo plano;
+- estado visual de disponibilidade sem bloquear a interface;
+- geometria da janela preservada entre execuções.
 
 ## Formatos de renderização
 
-- **1 vídeo (82)**: renderiza somente a câmera 82 com o preset individual.
-- **2 vídeos (81+82)**: combina o par 81/82 com o preset duplo.
-- **Ambos**: gera a composição 81/82 e também a saída individual da câmera 82.
-- **Todos (81 a 86)**: renderiza individualmente todos os vídeos presentes no lote com o “Preset Individual (82 / Todos)”; um lote com 81, 82, 83, 84, 85 e 86 gera seis saídas.
+| Formato | Comportamento |
+|---|---|
+| **1 vídeo (82)** | Renderiza somente a câmera 82 com o preset individual. |
+| **2 vídeos (81+82)** | Combina o par 81/82 com o preset duplo. |
+| **Ambos** | Gera a composição 81/82 e a saída individual da câmera 82. |
+| **Todos (81 a 86)** | Renderiza individualmente todas as câmeras disponíveis no lote. |
 
-Quando a pasta `preset` contém somente um arquivo `.mov`, o app ativa automaticamente o comportamento “Todos”: aplica esse único preset individualmente a cada vídeo da pasta. Com dois presets, os formatos de 81+82 continuam funcionando como configurados.
+Quando existe somente um arquivo `.mov` em `preset/`, o aplicativo seleciona
+automaticamente o modo **Todos**. Com dois presets, os formatos de par continuam
+disponíveis conforme a configuração.
 
-## Observações
+## Estrutura do projeto
 
-- O modo teste (TESTAR_SEM_HISTORICO.bat) não salva histórico de renderizações
-- Certifique-se de que FFmpeg está em bin/
-- Certifique-se de que os presets estão em preset/
-- Para performance, deixe o codec em `auto`: o app tenta NVIDIA (`h264_nvenc`), AMD (`h264_amf`) e usa CPU (`libx264`) como fallback.
-- Em PC com AMD, selecione `h264_amf` se quiser exigir a placa AMD.
-- O instalador gerado requer a senha digitada durante `BUILD_INSTALLER_COM_SENHA.bat`
-- O histórico é salvo de forma atômica para reduzir risco de JSON corrompido.
-- O render tem timeout configurável em `config/settings.json` (`ffmpeg_timeout_seconds`) e limpa saída parcial quando falha.
-- A checagem de arquivo estável tem limite configurável (`stable_check_max_wait_seconds`) para não travar em cópias incompletas.
-- Os logs principais têm rotação automática para não crescerem sem limite.
+```text
+AutoRenderStudio/
+├── AutoRenderPreset_GUI.py       ponto de entrada da interface
+├── backend/                      render, fila, validação e entrega
+├── frontend/                     interface desktop
+├── tests/                        testes automatizados
+├── config/                       configuração local
+├── bin/                          FFmpeg e FFprobe locais
+├── preset/                       presets MOV locais
+├── entrada/                      vídeos aguardando processamento
+├── saida/                        vídeos concluídos
+├── processados/                  originais processados
+├── erros/                        itens com erro
+├── quarentena/                   mídias inválidas
+├── logs/                         histórico e diagnóstico
+├── update/                       pacotes locais de atualização
+├── AutoRenderPreset.spec         build PyInstaller
+└── AutoRenderStudio_Setup.iss    instalador Inno Setup
+```
 
-## Tamanho do Projeto
+## Requisitos
 
-- Repositório de código-fonte: menos de 1MB
-- FFmpeg, presets, vídeos e builds permanecem fora do GitHub
+### Para executar
 
-## Suporte
+- Windows 10 ou Windows 11;
+- Python 3.11 ou superior;
+- `ffmpeg.exe` e `ffprobe.exe`;
+- um ou dois presets de vídeo `.mov`.
 
-Para problemas ou dúvidas, verifique os logs em `logs/autorender.log`
+### Para compilar
+
+- dependências de `requirements.txt`;
+- PyInstaller 6 ou superior;
+- Inno Setup 6 ou 7 para gerar o instalador.
+
+## Início rápido
+
+Clone o repositório:
+
+```powershell
+git clone https://github.com/raphaelalves-dev/autorender-studio.git
+cd autorender-studio
+```
+
+Prepare o ambiente:
+
+```text
+INSTALAR.bat
+```
+
+Adicione os arquivos locais que não fazem parte do GitHub:
+
+```text
+bin\ffmpeg.exe
+bin\ffprobe.exe
+preset\seu-preset.mov
+```
+
+Execute em modo de teste:
+
+```text
+TESTAR_SEM_HISTORICO.bat
+```
+
+Na primeira execução, o aplicativo cria `config/settings.json` com os caminhos
+da máquina. Esse arquivo permanece fora do Git.
+
+## Gerar os executáveis
+
+Versão portátil:
+
+```text
+BUILD_EXE_PORTABLE.bat
+```
+
+Resultado:
+
+```text
+dist\AutoRenderPreset\AutoRenderPreset.exe
+```
+
+Instalador protegido por senha:
+
+```text
+BUILD_INSTALLER_COM_SENHA.bat
+```
+
+O script solicita a senha durante a execução e gera:
+
+```text
+output\AutoRenderStudio_Setup_1.2.4.exe
+```
+
+Antes de uma distribuição, execute:
+
+```text
+CHECK_PROD.bat
+```
+
+## Testes
+
+```powershell
+python -m unittest discover -s tests -v
+```
+
+A suíte cobre seleção de lotes, formatos de render, recuperação, entrega,
+quarentena, retenção de logs, subprocessos ocultos e integração com a janela do
+Windows.
+
+## Segurança e publicação
+
+Não publique:
+
+```text
+config/settings.json
+vídeos de entrada ou saída
+presets proprietários
+FFmpeg e outros binários
+logs de produção
+senhas de instalador
+pacotes privados de atualização
+```
+
+O `.gitignore` do projeto protege esses itens. Consulte a
+[política de segurança](SECURITY.md) antes de divulgar um pacote.
+
+## Status do projeto
+
+Versão atual: **1.2.4**
+
+Última atualização: **22 de julho de 2026**
+
+O projeto está funcional e em evolução. Teste novas builds em uma estação sem
+dados de produção antes da distribuição.
+
+## Documentação
+
+- [Histórico de versões](CHANGELOG.md)
+- [Política de segurança](SECURITY.md)
+- [Como contribuir](CONTRIBUTING.md)
+- [Licença](LICENSE.md)
+
+## Licença
+
+Código-fonte proprietário da **Clicks da Serra**. Consulte [LICENSE.md](LICENSE.md).

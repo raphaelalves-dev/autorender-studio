@@ -1,0 +1,63 @@
+name: Relatar uma falha
+description: Informe um comportamento inesperado do AutoRender Studio.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Não envie vídeos de clientes, presets, senhas, caminhos internos ou logs com dados sensíveis.
+
+  - type: input
+    id: version
+    attributes:
+      label: Versão
+      placeholder: "1.2.4"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: render-format
+    attributes:
+      label: Formato de renderização
+      options:
+        - 1 vídeo (82)
+        - 2 vídeos (81+82)
+        - Ambos
+        - Todos (81 a 86)
+        - Não se aplica
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: O que aconteceu?
+      description: Descreva o comportamento observado e o resultado esperado.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Como reproduzir
+      placeholder: |
+        1. Abra...
+        2. Selecione...
+        3. Observe...
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Ambiente
+      description: Informe Windows, GPU e codec selecionado, sem dados internos.
+
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Confirmação
+      options:
+        - label: Removi dados de clientes, caminhos internos, credenciais e senhas.
+          required: true

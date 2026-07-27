@@ -7,7 +7,7 @@
   <img alt="Windows 10 e 11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?logo=windows&logoColor=white">
   <img alt="FFmpeg" src="https://img.shields.io/badge/FFmpeg-NVENC%20%7C%20AMF%20%7C%20CPU-007808?logo=ffmpeg&logoColor=white">
   <a href="https://github.com/raphaelalves-dev/autorender-studio/actions/workflows/tests.yml"><img alt="Testes" src="https://github.com/raphaelalves-dev/autorender-studio/actions/workflows/tests.yml/badge.svg"></a>
-  <img alt="Versão 1.2.4" src="https://img.shields.io/badge/vers%C3%A3o-1.2.4-7C3AED">
+  <a href="https://github.com/raphaelalves-dev/autorender-studio/releases/latest"><img alt="Última release" src="https://img.shields.io/github/v/release/raphaelalves-dev/autorender-studio?display_name=tag&color=7C3AED"></a>
   <a href="LICENSE.md"><img alt="Licença proprietária" src="https://img.shields.io/badge/licen%C3%A7a-propriet%C3%A1ria-111827"></a>
 </p>
 
@@ -27,6 +27,21 @@ exigir operação manual a cada render.
 A interface foi criada para uso contínuo em Windows, com monitoramento do
 servidor em segundo plano, histórico, recuperação de falhas e opções de
 aceleração por GPU.
+
+## Download
+
+A versão publicada está disponível em
+[GitHub Releases](https://github.com/raphaelalves-dev/autorender-studio/releases/latest).
+
+Cada release inclui:
+
+- pacote ZIP de atualização para uma instalação existente;
+- checksum SHA-256 para validação do download;
+- código-fonte nos formatos `.zip` e `.tar.gz`;
+- notas com mudanças e instruções da versão.
+
+> O pacote de atualização não inclui presets, FFmpeg, vídeos ou configurações
+> locais. Para uma instalação nova, siga o [início rápido](#início-rápido).
 
 ## Arquitetura
 
@@ -241,6 +256,7 @@ dados de produção antes da distribuição.
 ## Documentação
 
 - [Histórico de versões](CHANGELOG.md)
+- [Releases](https://github.com/raphaelalves-dev/autorender-studio/releases)
 - [Política de segurança](SECURITY.md)
 - [Como contribuir](CONTRIBUTING.md)
 - [Licença](LICENSE.md)

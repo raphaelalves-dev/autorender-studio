@@ -43,6 +43,20 @@ Cada release inclui:
 > O pacote de atualização não inclui presets, FFmpeg, vídeos ou configurações
 > locais. Para uma instalação nova, siga o [início rápido](#início-rápido).
 
+### Histórico e restauração
+
+Na primeira abertura do executável com histórico, o aplicativo guarda uma cópia
+dos seus próprios arquivos em `update/history/`. Antes de aplicar os próximos
+ZIPs, salva novamente o executável e a pasta `_internal/` da versão instalada.
+Cada registro contém data, versão e nome do pacote. O histórico fica na
+instalação local e pode crescer a cada atualização.
+
+Se uma atualização causar problemas, feche o AutoRender Studio e use
+**Configurações > Voltar versão**. Se a janela não abrir, execute
+`update/RESTAURAR_VERSAO_ANTERIOR.bat` na pasta da instalação. A restauração
+substitui o executável e `_internal/`; preserva presets, FFmpeg, configuração,
+vídeos e logs. Não apague `update/history/` enquanto precisar dessa opção.
+
 ## Arquitetura
 
 ```mermaid
@@ -182,8 +196,9 @@ Execute em modo de teste:
 TESTAR_SEM_HISTORICO.bat
 ```
 
-Na primeira execução, o aplicativo cria `config/settings.json` com os caminhos
-da máquina. Esse arquivo permanece fora do Git.
+Na versão portátil, a primeira execução cria `config/settings.json`. O instalador
+fornece uma configuração inicial simples e preserva a configuração existente em
+reinstalações. Esse arquivo permanece fora do Git.
 
 ## Gerar os executáveis
 
@@ -199,17 +214,25 @@ Resultado:
 dist\AutoRenderPreset\AutoRenderPreset.exe
 ```
 
-Instalador protegido por senha:
+Para gerar um novo instalador base da versão do código atual:
 
 ```text
-BUILD_INSTALLER_COM_SENHA.bat
+BUILD_INSTALLER.bat
 ```
 
-O script solicita a senha durante a execução e gera:
+O script gera um único instalador com o programa, FFmpeg, FFprobe e uma configuração inicial simples. **O preset não é incluído**:
 
 ```text
-output\AutoRenderStudio_Setup_1.2.4.exe
+output\AutoRenderStudio_Setup_1.2.8.exe
 ```
+
+O instalador base 1.2.5 criado anteriormente permanece em `output/`. Para atualizar essa instalação sem reinstalar, use **apenas** `update/AutoRenderStudio_Update_1.2.8.zip` em **Configurações > Atualizações**. O ZIP contém o programa completo da versão 1.2.8, incluindo as mudanças das versões 1.2.6 e 1.2.7; não é necessário carregar os ZIPs intermediários.
+
+O instalador não pede senha e não inclui arquivos de vídeo. Na primeira abertura, selecione o preset `.MOV` e ajuste as pastas em **Configurações**; o arquivo pode estar na pasta `preset` do programa ou em outro local acessível. O caminho escolhido permanece salvo nas próximas aberturas. Não há assinatura digital nesta compilação local.
+
+Depois de instalado, abra o AutoRender Studio para criar a primeira entrada do histórico. Atualizações posteriores são carregadas na tela **Configurações > Atualização ZIP**. A instalação preserva uma configuração já existente e os vídeos de trabalho.
+
+Para reinstalar por cima, feche o AutoRender e execute o instalador na mesma conta do Windows. Se a instalação anterior usou este instalador, o assistente recupera a pasta já usada. Se você usa uma cópia portátil, escolha manualmente a pasta onde está `AutoRenderPreset.exe`. O instalador não substitui `config/settings.json`, presets fornecidos pelo usuário nem as pastas de vídeos e logs. Caminhos externos de entrada, saída e preset permanecem configurados após a atualização.
 
 Antes de uma distribuição, execute:
 
@@ -246,9 +269,13 @@ O `.gitignore` do projeto protege esses itens. Consulte a
 
 ## Status do projeto
 
-Versão atual: **1.2.4**
+Versão atual do código: **1.2.8**
 
-Última atualização: **22 de julho de 2026**
+Última atualização: **7 de outubro de 2026**
+
+Em **Configurações > Fotos**, ative as fotos e use **+ Adicionar ponto** para criar uma linha por segundo central. Por exemplo, pontos nos segundos `10` e `25` produzem imagens nos segundos `9, 10, 11, 24, 25, 26` de **cada vídeo original**. Cada linha mostra a prévia dos três segundos e pode ser removida. Todos os JPGs novos ficam diretamente na pasta `fotos`, ao lado do vídeo final. O nome de cada arquivo identifica render, câmera, gravação e segundo, por exemplo `render__85__85_camera__0009s.jpg`. Fotos antigas em subpastas não são movidas pela atualização. Uma gravação curta demais para um trio é ignorada e registrada no log. A geração de fotos acrescenta tempo ao processamento da fila.
+
+Para gerar fotos da gravação inteira, deixe **uma única linha com o valor `0`** e mantenha a opção de fotos ativa. O programa gera um JPG por segundo do vídeo original, incluindo o segundo 0 e o último segundo parcial. Nesse modo, organiza as imagens em `fotos/81/`, `fotos/82/` etc.; arquivos sem identificador 81–86 vão para `fotos/SEM_ID/`. Os pontos normais continuam usando diretamente `fotos/`.
 
 O projeto está funcional e em evolução. Teste novas builds em uma estação sem
 dados de produção antes da distribuição.

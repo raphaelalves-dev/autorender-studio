@@ -26,6 +26,7 @@ from backend.ffprobe_reader import VideoInfo, probe_media
 from backend.logger import append_jsonl, setup_logger
 from backend.delivery import local_render_path, queue_delivery, resume_pending_deliveries
 from backend.history import RenderHistory
+from backend.photo_extractor import extract_photos
 from backend.subprocess_utils import hidden_console_kwargs
 from backend.input_selector import (
     cycle_folder_for_path,
@@ -109,6 +110,15 @@ def _cleanup_partial_output(path: Path) -> None:
             path.unlink()
     except OSError:
         pass
+
+
+def _generate_photos_without_failing_render(sources: list[Path], output: Path, config: AppConfig, logger) -> None:
+    if not config.photo_enabled:
+        return
+    try:
+        extract_photos(sources, output, config)
+    except Exception as exc:
+        logger.warning("Vídeo concluído; falha isolada ao gerar fotos: %s", exc)
 
 
 def _run_ffmpeg_command(cmd: list[str], config: AppConfig) -> tuple[int, str]:
@@ -239,6 +249,7 @@ def render_one(
     record_history: bool = True,
     move_on_error: Optional[bool] = None,
     render_started_at: Optional[datetime] = None,
+    generate_photos: bool = True,
 ) -> RenderResult:
     logger = setup_logger(config.logs_path)
     ensure_directories(config)
@@ -320,8 +331,9 @@ def render_one(
         )
 
         should_move = config.move_original_on_success if move_original is None else move_original
+        photo_sources = [input_file]
         if should_move:
-            _move_files_transactionally(
+            photo_sources = _move_files_transactionally(
                 [(input_file, _archive_dir_for_input(input_file, config.processed_path, config))]
             )
 
@@ -350,6 +362,8 @@ def render_one(
                         )
             except Exception as history_exc:
                 logger.warning("Render concluído, mas o histórico não foi atualizado: %s", history_exc)
+        if generate_photos:
+            _generate_photos_without_failing_render(photo_sources, output_file, config, logger)
     except Exception as exc:
         success = False
         error = str(exc)
@@ -398,6 +412,7 @@ def render_pair(
     record_history: bool = True,
     move_on_error: Optional[bool] = None,
     render_started_at: Optional[datetime] = None,
+    generate_photos: bool = True,
 ) -> RenderResult:
     logger = setup_logger(config.logs_path)
     ensure_directories(config)
@@ -499,8 +514,9 @@ def render_pair(
         )
 
         should_move = config.move_original_on_success if move_original is None else move_original
+        photo_sources = input_files
         if should_move:
-            _move_files_transactionally(
+            photo_sources = _move_files_transactionally(
                 [
                     (input_file, _archive_dir_for_input(input_file, config.processed_path, config))
                     for input_file in input_files
@@ -533,6 +549,8 @@ def render_pair(
                         )
             except Exception as history_exc:
                 logger.warning("Render concluído, mas o histórico do par não foi atualizado: %s", history_exc)
+        if generate_photos:
+            _generate_photos_without_failing_render(photo_sources, output_file, config, logger)
     except Exception as exc:
         success = False
         error = str(exc)
@@ -604,6 +622,7 @@ def render_both(
             record_history=False,
             move_on_error=False,
             render_started_at=started,
+            generate_photos=False,
         )
         single_result = render_one(
             input_82_file,
@@ -614,6 +633,7 @@ def render_both(
             record_history=False,
             move_on_error=False,
             render_started_at=started,
+            generate_photos=False,
         )
     except Exception:
         if pair_result:
@@ -641,8 +661,9 @@ def render_both(
 
     try:
         should_move = config.move_original_on_success if move_original is None else move_original
+        photo_sources = input_files
         if should_move:
-            _move_files_transactionally(
+            photo_sources = _move_files_transactionally(
                 [
                     (input_file, _archive_dir_for_input(input_file, config.processed_path, config))
                     for input_file in input_files
@@ -686,6 +707,8 @@ def render_both(
                     history.mark_cycle_complete(cycle_folder, video_count=cycle_video_count_before_move)
         except Exception as history_exc:
             logger.warning("Os dois formatos foram concluídos, mas o histórico não foi atualizado: %s", history_exc)
+
+    _generate_photos_without_failing_render(photo_sources, Path(pair_result.output_file), config, logger)
 
     return BothRenderResult(
         pair_result=pair_result,

@@ -6,7 +6,7 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
-from backend.app_info import APP_NAME
+from backend.app_info import APP_NAME, APP_VERSION
 
 
 def runtime_root() -> Path:
@@ -72,36 +72,10 @@ def prepare_portable_config(root: Path) -> Path:
     cfg = load_config(config_path)
     config_changed = False
 
-    if not getattr(cfg, "startup_safety_reset_done", False):
-        cfg.start_with_windows = False
-        cfg.auto_start_on_launch = False
-        cfg.startup_safety_reset_done = True
-        config_changed = True
-
-    # Em app empacotado, a pasta raiz deve ser a pasta do .exe.
-    # Se o settings veio de outro PC com caminho absoluto, normaliza para portátil.
-    if getattr(sys, "frozen", False):
+    # Apenas a raiz interna acompanha a pasta do executável. Caminhos escolhidos
+    # pelo usuário (entrada, saída, presets e logs) devem sobreviver à reinstalação.
+    if getattr(sys, "frozen", False) and cfg.project_root != ".":
         cfg.project_root = "."
-        if Path(cfg.input_dir).is_absolute():
-            cfg.input_dir = "entrada"
-        if Path(cfg.output_dir).is_absolute():
-            cfg.output_dir = "saida"
-        if Path(cfg.processed_dir).is_absolute():
-            cfg.processed_dir = "processados"
-        if Path(cfg.error_dir).is_absolute():
-            cfg.error_dir = "erros"
-        if Path(cfg.logs_dir).is_absolute():
-            cfg.logs_dir = "logs"
-        if Path(cfg.history_file).is_absolute():
-            cfg.history_file = "logs/render_history.json"
-        if Path(cfg.preset_file).is_absolute():
-            cfg.preset_file = Path(cfg.preset_file).name
-        if Path(getattr(cfg, "pair_preset_file", "")).is_absolute():
-            cfg.pair_preset_file = Path(cfg.pair_preset_file).name
-        if Path(cfg.preset_dir).is_absolute():
-            cfg.preset_dir = "preset"
-        if Path(getattr(cfg, "update_dir", "update")).is_absolute():
-            cfg.update_dir = "update"
         config_changed = True
 
     if config_changed:
@@ -133,6 +107,14 @@ def main() -> int:
             from backend.main import main as cli_main
 
             return cli_main(sys.argv[1:])
+
+        if getattr(sys, "frozen", False):
+            from backend.install_history import ensure_baseline_history
+
+            try:
+                ensure_baseline_history(root, APP_VERSION)
+            except Exception as exc:
+                write_startup_error(root, f"Historico de instalacao indisponivel: {exc}")
 
         hide_console_for_gui()
 

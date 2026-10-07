@@ -178,6 +178,9 @@ class AppConfig:
     window_geometry: str = ""
     mode: RenderMode = "balanced"
     render_format: RenderFormat = "pair"
+    photo_enabled: bool = False
+    photo_group_count: int = 1
+    photo_center_seconds: list[int] = field(default_factory=lambda: [10])
     stable_check_seconds: float = 3.0
     stable_check_interval: float = 1.0
     stable_check_max_wait_seconds: float = 120.0
@@ -408,6 +411,15 @@ def app_config_from_dict(data: Dict[str, Any]) -> AppConfig:
     data["export"].height = max(16, _as_int(data["export"].height, 1920))
     data["export"].max_duration_seconds = max(1, _as_int(data["export"].max_duration_seconds, 65))
     data["parallel_workers"] = clamp_parallel_workers(data.get("parallel_workers", 1))
+    data["photo_enabled"] = _as_bool(data.get("photo_enabled", False))
+    data["photo_group_count"] = max(1, min(20, _as_int(data.get("photo_group_count", 1), 1)))
+    centers = data.get("photo_center_seconds", [10])
+    if not isinstance(centers, list):
+        centers = [10]
+    if len(centers) == 1 and _as_int(centers[0], 10) == 0:
+        data["photo_center_seconds"] = [0]
+    else:
+        data["photo_center_seconds"] = [max(1, _as_int(value, 10)) for value in centers[:20]] or [10]
     data["special_cycle_folders"] = normalize_special_cycle_folders(data.get("special_cycle_folders"))
     data["stable_check_seconds"] = max(0.0, _as_float(data.get("stable_check_seconds", 3.0), 3.0))
     data["stable_check_interval"] = max(0.2, _as_float(data.get("stable_check_interval", 1.0), 1.0))

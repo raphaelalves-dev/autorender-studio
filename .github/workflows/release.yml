@@ -39,7 +39,12 @@ jobs:
 
           New-Item -ItemType Directory -Path $appRoot -Force | Out-Null
           Copy-Item "dist\AutoRenderPreset\AutoRenderPreset.exe" $appRoot
+          Copy-Item "dist\AutoRenderPreset\_internal" $appRoot -Recurse
+          Copy-Item "autorendericon.ico" $appRoot
           Copy-Item "docs\releases\${{ github.ref_name }}.md" (Join-Path $appRoot "LEIA-ME_ATUALIZACAO_$version.md")
+          if (-not (Test-Path (Join-Path $appRoot "_internal\base_library.zip"))) {
+            throw "Pacote incompleto: _internal nao foi copiado."
+          }
           Compress-Archive -Path $appRoot -DestinationPath $packageName -CompressionLevel Optimal
 
           $hash = (Get-FileHash $packageName -Algorithm SHA256).Hash.ToLowerInvariant()

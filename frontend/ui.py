@@ -37,6 +37,7 @@ from backend.config import (
 )
 from backend.daily_cleanup import cleanup_processed_before_today, cleanup_quarantine_before_today
 from backend.delivery import resume_pending_deliveries
+from backend.install_history import HISTORY_DIR, RESTORE_LAUNCHER
 from backend.logger import append_text_line
 from backend.updater import UpdatePackageError, prepare_update_zip
 from backend.startup import configure_start_with_windows
@@ -95,6 +96,20 @@ def render_format_label(config: AppConfig) -> str:
     if effective == "all" and getattr(config, "render_format", "pair") != "all":
         return "Automático: todos (1 preset)"
     return RENDER_FORMAT_LABELS.get(effective, "2 vídeos (81+82)")
+
+
+def parse_photo_centers(values: list[str]) -> list[int]:
+    try:
+        centers = [int(value.strip()) for value in values]
+    except ValueError as exc:
+        raise ValueError("Cada ponto de foto precisa de um segundo inteiro.") from exc
+    if not 1 <= len(centers) <= 20:
+        raise ValueError("Use de 1 a 20 pontos de foto por gravação.")
+    if centers == [0]:
+        return centers
+    if any(center < 1 for center in centers) or len(set(centers)) != len(centers):
+        raise ValueError("Use 0 sozinho para a gravação inteira, ou segundos únicos a partir de 1.")
+    return centers
 
 
 def _visual_activity_state(message: str, processing: bool) -> str:
@@ -652,6 +667,10 @@ class AutoRenderUI(tk.Tk):
         self.after(150, self._poll_path_health)
         self.protocol("WM_DELETE_WINDOW", self._close)
         self._write("Janela de teste aberta.")
+        if not self.cfg.available_preset_paths():
+            self._set_status("Selecione um preset .MOV em Configurações para começar.")
+            self._write("Preset ausente. Selecione seu arquivo .MOV em Configurações.")
+            self.after(500, self._open_settings)
         if getattr(self.cfg, "auto_start_on_launch", False):
             self.after(800, self._start_auto)
 
@@ -793,14 +812,17 @@ class AutoRenderUI(tk.Tk):
             "daily_output_root": tk.StringVar(value=getattr(self.cfg, "daily_output_root", "")),
             "daily_output_format": tk.StringVar(value=getattr(self.cfg, "daily_output_format", DEFAULT_DAILY_OUTPUT_FORMAT)),
             "logs_dir": tk.StringVar(value=str(self.cfg.logs_path)),
-            "pair_preset_file": tk.StringVar(value=str(self.cfg.pair_preset_path)),
-            "preset_file": tk.StringVar(value=str(self.cfg.preset_path)),
+            "pair_preset_file": tk.StringVar(value=str(self.cfg.pair_preset_path) if self.cfg.pair_preset_file else ""),
+            "preset_file": tk.StringVar(value=str(self.cfg.preset_path) if self.cfg.preset_path.is_file() else ""),
             "mode": tk.StringVar(value=self.cfg.mode),
             "codec": tk.StringVar(value=self.cfg.export.codec),
             "render_format": tk.StringVar(
                 value=RENDER_FORMAT_LABELS.get(getattr(self.cfg, "render_format", "pair"), "2 vídeos (81+82)")
             ),
             "parallel_workers": tk.StringVar(value=str(getattr(self.cfg, "parallel_workers", 1))),
+            "photo_enabled": tk.BooleanVar(value=getattr(self.cfg, "photo_enabled", False)),
+            "photo_group_count": tk.StringVar(value=str(getattr(self.cfg, "photo_group_count", 1))),
+            "photo_center_seconds": tk.StringVar(value=", ".join(map(str, getattr(self.cfg, "photo_center_seconds", [10])))),
             "start_with_windows": tk.BooleanVar(value=getattr(self.cfg, "start_with_windows", False)),
             "auto_start_on_launch": tk.BooleanVar(value=getattr(self.cfg, "auto_start_on_launch", False)),
             "update_zip": tk.StringVar(value=""),
@@ -808,6 +830,9 @@ class AutoRenderUI(tk.Tk):
             "input_path_status": tk.StringVar(value="VERIFICANDO PASTA..."),
             "output_path_status": tk.StringVar(value="VERIFICANDO SERVIDOR..."),
         }
+        centers = list(getattr(self.cfg, "photo_center_seconds", [10])) or [10]
+        self._photo_points_vars = [tk.StringVar(value=str(second)) for second in centers]
+        self._photo_preview_traces: list[tuple[tk.StringVar, str]] = []
 
     def _build(self) -> None:
         self._initialize_vars()
@@ -1126,8 +1151,8 @@ class AutoRenderUI(tk.Tk):
         win = tk.Toplevel(self)
         self._settings_window = win
         win.title(f"Configurações · {APP_NAME}")
-        win.geometry("1080x650")
-        win.minsize(940, 600)
+        win.geometry("1020x700")
+        win.minsize(1020, 700)
         win.configure(bg=COLORS["bg"])
         win.transient(self)
         win.protocol("WM_DELETE_WINDOW", self._close_settings)
@@ -1143,91 +1168,214 @@ class AutoRenderUI(tk.Tk):
         panel.pack(fill="both", expand=True, padx=12, pady=12)
         root = panel.content
         root.columnconfigure(1, weight=1)
+        root.rowconfigure(2, weight=1)
 
         header = ttk.Frame(root, style="Card.TFrame")
         header.grid(row=0, column=0, columnspan=3, sticky="ew", pady=(0, 12))
         header.columnconfigure(0, weight=1)
-        ttk.Label(header, text="Configurações", style="HeaderTitle.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(
-            header,
-            text="Caminhos, presets, desempenho, inicialização e atualização",
-            style="Muted.TLabel",
-        ).grid(row=1, column=0, sticky="w")
+        tk.Label(header, text="Configurações", bg=COLORS["card"], fg=COLORS["title"],
+                 font=("Segoe UI", 19, "bold")).grid(row=0, column=0, sticky="w")
+        tk.Label(header, text="Organize a operação do AutoRender Studio", bg=COLORS["card"],
+                 fg=COLORS["muted"], font=("Segoe UI", 10)).grid(row=1, column=0, sticky="w")
         ttk.Button(header, text="Fechar", command=self._close_settings).grid(row=0, column=1, rowspan=2, sticky="e")
+        nav = tk.Frame(root, bg=COLORS["card"])
+        nav.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(0, 12))
+        pages_host = ttk.Frame(root, style="Card.TFrame")
+        pages_host.grid(row=2, column=0, columnspan=3, sticky="nsew")
+        pages_host.rowconfigure(0, weight=1)
+        pages_host.columnconfigure(0, weight=1)
+        self._settings_pages: dict[str, ttk.Frame] = {}
+        self._settings_nav: dict[str, tk.Button] = {}
+        for key, title in (("paths", "Caminhos"), ("photos", "Fotos"), ("production", "Produção"), ("updates", "Atualizações")):
+            page = ttk.Frame(pages_host, style="Card.TFrame")
+            page.grid(row=0, column=0, sticky="nsew")
+            page.columnconfigure(1, weight=1)
+            self._settings_pages[key] = page
+            button = tk.Button(
+                nav, text=title, command=lambda tab=key: self._show_settings_page(tab),
+                bg=COLORS["card_2"], fg=COLORS["muted"], activebackground=COLORS["cyan_soft"],
+                activeforeground=COLORS["title"], relief="flat", bd=0, padx=20, pady=11,
+                font=("Segoe UI", 10, "bold"), cursor="hand2",
+            )
+            button.pack(side="left", padx=(0, 6))
+            self._settings_nav[key] = button
 
-        row = 1
-        self._path_row(root, row, "Entrada atual", "input_dir", is_file=False)
-        row += 1
-        self._daily_path_row(root, row, "Entrada por dia", "daily_input_enabled", "daily_input_root", "daily_input_format")
-        row += 1
-        self._path_row(root, row, "Saída atual", "output_dir", is_file=False)
-        row += 1
-        self._daily_path_row(root, row, "Saída por dia", "daily_output_enabled", "daily_output_root", "daily_output_format")
-        row += 1
-        self._path_row(root, row, "Logs", "logs_dir", is_file=False)
-        row += 1
-        self._path_row(root, row, "Preset Auto", "pair_preset_file", is_file=True)
-        row += 1
-        self._path_row(root, row, "Preset Individual (82 / Todos)", "preset_file", is_file=True)
-        row += 1
-        self._update_row(root, row)
-        row += 1
-
-        options = ttk.Frame(root, style="Card.TFrame")
-        options.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(12, 6))
-        ttk.Label(options, text="Modo", style="FieldLabel.TLabel").pack(side="left")
-        mode_combo = ttk.Combobox(
-            options,
-            textvariable=self.vars["mode"],
-            values=["ultra", "pdv", "balanced", "quality"],
-            width=14,
-            state="readonly",
-        )
-        mode_combo.pack(side="left", padx=(6, 16))
-        self._track_control(mode_combo, "readonly")
-        ttk.Label(options, text="Codec", style="FieldLabel.TLabel").pack(side="left")
-        codec_combo = ttk.Combobox(
-            options,
-            textvariable=self.vars["codec"],
-            values=["auto", "h264_nvenc", "h264_amf", "libx264"],
-            width=15,
-            state="readonly",
-        )
-        codec_combo.pack(side="left", padx=(6, 16))
-        self._track_control(codec_combo, "readonly")
-        ttk.Label(options, text="Simultâneos", style="FieldLabel.TLabel").pack(side="left")
-        workers_combo = ttk.Combobox(
-            options,
-            textvariable=self.vars["parallel_workers"],
-            values=[str(item) for item in range(1, MAX_PARALLEL_WORKERS + 1)],
-            width=5,
-            state="readonly",
-        )
-        workers_combo.pack(side="left", padx=(6, 16))
-        self._track_control(workers_combo, "readonly")
-        start_check = ttk.Checkbutton(options, text="Iniciar com Windows", variable=self.vars["start_with_windows"])
-        start_check.pack(side="left", padx=(0, 12))
-        self._track_control(start_check)
-        auto_check = ttk.Checkbutton(options, text="Auto ao abrir", variable=self.vars["auto_start_on_launch"])
-        auto_check.pack(side="left")
-        self._track_control(auto_check)
-        row += 1
+        self._build_settings_paths(self._settings_pages["paths"])
+        self._build_settings_photos(self._settings_pages["photos"])
+        self._build_settings_production(self._settings_pages["production"])
+        self._build_settings_updates(self._settings_pages["updates"])
+        self._show_settings_page("paths")
 
         footer = ttk.Frame(root, style="Card.TFrame")
-        footer.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(12, 0))
+        footer.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(12, 0))
         self.save_btn = ttk.Button(footer, text="Salvar configurações", command=self._save_from_ui, style="Primary.TButton")
         self.save_btn.pack(side="left", padx=(0, 6))
         self._track_control(self.save_btn)
-        self.open_logs_btn = ttk.Button(footer, text="Abrir logs", command=self._open_logs)
-        self.open_logs_btn.pack(side="left", padx=6)
-        self._track_control(self.open_logs_btn)
-        self.zip_logs_btn = ttk.Button(footer, text="Gerar ZIP dos logs", command=self._zip_logs)
-        self.zip_logs_btn.pack(side="left", padx=6)
-        self._track_control(self.zip_logs_btn)
-        quarantine_btn = ttk.Button(footer, text="Abrir quarentena", command=self._open_quarantine)
-        quarantine_btn.pack(side="left", padx=6)
-        self._track_control(quarantine_btn)
+        ttk.Label(footer, text="As alterações valem após salvar.", style="Muted.TLabel").pack(side="left", padx=12)
         ttk.Button(footer, text="Voltar para Home", command=self._close_settings).pack(side="right")
+
+    def _show_settings_page(self, key: str) -> None:
+        self._settings_pages[key].tkraise()
+        for name, button in self._settings_nav.items():
+            selected = name == key
+            button.configure(
+                bg=COLORS["cyan_soft"] if selected else COLORS["card_2"],
+                fg=COLORS["cyan"] if selected else COLORS["muted"],
+            )
+
+    @staticmethod
+    def _settings_intro(parent: ttk.Frame, title: str, description: str) -> None:
+        ttk.Label(parent, text=title, style="HeaderSub.TLabel").grid(row=0, column=0, columnspan=3, sticky="w", pady=(2, 2))
+        ttk.Label(parent, text=description, style="Muted.TLabel").grid(row=1, column=0, columnspan=3, sticky="w", pady=(0, 16))
+
+    def _build_settings_paths(self, page: ttk.Frame) -> None:
+        self._settings_intro(page, "CAMINHOS E PRESETS", "Escolha as pastas usadas na gravação, na entrega e pelos presets.")
+        ttk.Label(page, text="ARQUIVOS DE TRABALHO", style="HeaderSub.TLabel").grid(row=2, column=0, columnspan=3, sticky="w", pady=(2, 4))
+        self._path_row(page, 3, "Entrada atual", "input_dir", is_file=False)
+        self._daily_path_row(page, 4, "Entrada por dia", "daily_input_enabled", "daily_input_root", "daily_input_format")
+        self._path_row(page, 5, "Saída atual", "output_dir", is_file=False)
+        self._daily_path_row(page, 6, "Saída por dia", "daily_output_enabled", "daily_output_root", "daily_output_format")
+        self._path_row(page, 7, "Logs", "logs_dir", is_file=False)
+        ttk.Label(page, text="PRESETS .MOV", style="HeaderSub.TLabel").grid(row=8, column=0, columnspan=3, sticky="w", pady=(16, 4))
+        self._path_row(page, 9, "Preset Individual (82 / Todos)", "preset_file", is_file=True)
+        self._path_row(page, 10, "Preset Auto (81 + 82)", "pair_preset_file", is_file=True)
+        ttk.Label(page, text="O preset é fornecido por você e pode ficar em outra pasta acessível.", style="Muted.TLabel").grid(
+            row=11, column=0, columnspan=3, sticky="w", pady=(10, 0)
+        )
+
+    def _build_settings_production(self, page: ttk.Frame) -> None:
+        self._settings_intro(page, "PRODUÇÃO", "Ajuste o desempenho e quando o processamento automático começa.")
+        choices = (
+            ("Modo de render", "mode", ["ultra", "pdv", "balanced", "quality"]),
+            ("Codec de vídeo", "codec", ["auto", "h264_nvenc", "h264_amf", "libx264"]),
+            ("Renders simultâneos", "parallel_workers", [str(item) for item in range(1, MAX_PARALLEL_WORKERS + 1)]),
+        )
+        for row, (label, key, values) in enumerate(choices, start=2):
+            ttk.Label(page, text=label, style="FieldLabel.TLabel").grid(row=row, column=0, sticky="w", pady=8)
+            combo = ttk.Combobox(page, textvariable=self.vars[key], values=values, state="readonly", width=25)
+            combo.grid(row=row, column=1, sticky="w", padx=(12, 0), pady=8)
+            self._track_control(combo, "readonly")
+        ttk.Label(page, text="INICIALIZAÇÃO", style="HeaderSub.TLabel").grid(row=6, column=0, columnspan=3, sticky="w", pady=(24, 8))
+        start_check = ttk.Checkbutton(page, text="Iniciar com Windows", variable=self.vars["start_with_windows"])
+        start_check.grid(row=7, column=0, columnspan=3, sticky="w", pady=7)
+        self._track_control(start_check)
+        auto_check = ttk.Checkbutton(page, text="Iniciar Auto ao abrir o aplicativo", variable=self.vars["auto_start_on_launch"])
+        auto_check.grid(row=8, column=0, columnspan=3, sticky="w", pady=7)
+        self._track_control(auto_check)
+
+    def _build_settings_updates(self, page: ttk.Frame) -> None:
+        self._settings_intro(page, "ATUALIZAÇÕES E MANUTENÇÃO", "Carregue um ZIP, consulte versões anteriores e abra os registros.")
+        self._update_row(page, 2)
+        tools = ttk.Frame(page, style="Card.TFrame")
+        tools.grid(row=3, column=0, columnspan=3, sticky="w", pady=(26, 0))
+        self.open_logs_btn = ttk.Button(tools, text="Abrir logs", command=self._open_logs)
+        self.open_logs_btn.pack(side="left", padx=(0, 8))
+        self._track_control(self.open_logs_btn)
+        self.zip_logs_btn = ttk.Button(tools, text="Gerar ZIP dos logs", command=self._zip_logs)
+        self.zip_logs_btn.pack(side="left", padx=(0, 8))
+        self._track_control(self.zip_logs_btn)
+        quarantine_btn = ttk.Button(tools, text="Abrir quarentena", command=self._open_quarantine)
+        quarantine_btn.pack(side="left")
+        self._track_control(quarantine_btn)
+
+    def _build_settings_photos(self, page: ttk.Frame) -> None:
+        self._settings_intro(page, "FOTOS DOS VÍDEOS ORIGINAIS", "Pontos normais geram três JPGs; uma única linha em 0 gera uma foto por segundo do vídeo todo.")
+        toggle = ttk.Checkbutton(page, text="Gerar fotos junto com os vídeos", variable=self.vars["photo_enabled"])
+        toggle.grid(row=2, column=0, columnspan=3, sticky="w", pady=(0, 16))
+        self._track_control(toggle)
+        shell = tk.Frame(page, bg=COLORS["card_2"], highlightbackground=COLORS["card_border"], highlightthickness=1)
+        shell.grid(row=3, column=0, columnspan=3, sticky="nsew")
+        page.rowconfigure(3, weight=1)
+        top = tk.Frame(shell, bg=COLORS["card_2"])
+        top.pack(fill="x", padx=16, pady=(14, 10))
+        tk.Label(top, text="PONTOS DE CAPTURA", bg=COLORS["card_2"], fg=COLORS["title"], font=("Segoe UI", 11, "bold")).pack(side="left")
+        self._photo_count_label = tk.Label(top, bg=COLORS["card_2"], fg=COLORS["muted"], font=("Segoe UI", 9))
+        self._photo_count_label.pack(side="left", padx=12)
+        add_button = ttk.Button(top, text="+ Adicionar ponto", command=self._add_photo_point, style="Primary.TButton")
+        add_button.pack(side="right")
+        self._track_control(add_button)
+        list_area = tk.Frame(shell, bg=COLORS["card_2"])
+        list_area.pack(fill="both", expand=True, padx=14, pady=(0, 12))
+        canvas = tk.Canvas(list_area, bg=COLORS["card_2"], highlightthickness=0, bd=0)
+        scrollbar = ttk.Scrollbar(list_area, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        self._photo_rows_frame = tk.Frame(canvas, bg=COLORS["card_2"])
+        inner_id = canvas.create_window((0, 0), window=self._photo_rows_frame, anchor="nw")
+        self._photo_rows_frame.bind("<Configure>", lambda _event: self._refresh_photo_scroll(canvas, scrollbar))
+        canvas.bind("<Configure>", lambda event: (canvas.itemconfigure(inner_id, width=event.width), self._refresh_photo_scroll(canvas, scrollbar)))
+        self._photo_canvas = canvas
+        self._render_photo_rows()
+        ttk.Label(page, text="Exemplo: 10 → fotos em 9/10/11 s. Para o vídeo inteiro, mantenha apenas uma linha em 0.", style="Muted.TLabel").grid(
+            row=4, column=0, columnspan=3, sticky="w", pady=(12, 0)
+        )
+
+    def _render_photo_rows(self) -> None:
+        if not hasattr(self, "_photo_rows_frame") or not self._photo_rows_frame.winfo_exists():
+            return
+        for variable, trace_id in self._photo_preview_traces:
+            variable.trace_remove("write", trace_id)
+        self._photo_preview_traces.clear()
+        for child in self._photo_rows_frame.winfo_children():
+            child.destroy()
+        self._photo_count_label.configure(text=f"{len(self._photo_points_vars)} de 20")
+        for index, second_var in enumerate(self._photo_points_vars):
+            row = tk.Frame(self._photo_rows_frame, bg=COLORS["card_2"])
+            row.pack(fill="x", padx=2, pady=4)
+            tk.Label(row, text=f"Ponto {index + 1:02d}", bg=COLORS["card_2"], fg=COLORS["title"], font=("Segoe UI", 10, "bold"), width=11, anchor="w").pack(side="left")
+            tk.Label(row, text="Segundo central", bg=COLORS["card_2"], fg=COLORS["muted"], font=("Segoe UI", 9)).pack(side="left", padx=(10, 8))
+            entry = ttk.Entry(row, textvariable=second_var, width=8)
+            entry.pack(side="left")
+            self._track_control(entry)
+            preview = tk.StringVar()
+            def refresh(*_args, value=second_var, label=preview):
+                try:
+                    center = int(value.get().strip())
+                    if center == 0 and len(self._photo_points_vars) == 1:
+                        label.set("Vídeo inteiro  •  1 foto por segundo")
+                    elif center >= 1:
+                        label.set(f"{center - 1} s   /   {center} s   /   {center + 1} s")
+                    else:
+                        label.set("Use 0 sozinho ou 1 s ou mais")
+                except ValueError:
+                    label.set("Informe um segundo válido")
+            trace_id = second_var.trace_add("write", refresh)
+            self._photo_preview_traces.append((second_var, trace_id))
+            refresh()
+            tk.Label(row, textvariable=preview, bg=COLORS["card_2"], fg=COLORS["cyan"], font=("Consolas", 10)).pack(side="left", padx=(22, 0))
+            remove = ttk.Button(row, text="Remover", command=lambda idx=index: self._remove_photo_point(idx))
+            remove.pack(side="right")
+            if len(self._photo_points_vars) == 1:
+                remove.configure(state="disabled")
+            self._track_control(remove)
+
+    @staticmethod
+    def _refresh_photo_scroll(canvas: tk.Canvas, scrollbar: ttk.Scrollbar) -> None:
+        canvas.configure(scrollregion=canvas.bbox("all"))
+        if canvas.winfo_exists() and canvas.bbox("all") and canvas.bbox("all")[3] > canvas.winfo_height():
+            if not scrollbar.winfo_manager():
+                scrollbar.pack(side="right", fill="y")
+        elif scrollbar.winfo_manager():
+            scrollbar.pack_forget()
+
+    def _add_photo_point(self) -> None:
+        if len(self._photo_points_vars) >= 20:
+            messagebox.showwarning("Fotos", "O limite é de 20 pontos por gravação.")
+            return
+        try:
+            next_second = max(int(var.get()) for var in self._photo_points_vars) + 3
+        except ValueError:
+            next_second = 10
+        self._photo_points_vars.append(tk.StringVar(value=str(next_second)))
+        self._render_photo_rows()
+        self._photo_canvas.after_idle(lambda: self._photo_canvas.yview_moveto(1.0))
+
+    def _remove_photo_point(self, index: int) -> None:
+        if len(self._photo_points_vars) <= 1:
+            messagebox.showinfo("Fotos", "Mantenha ao menos um ponto de captura.")
+            return
+        self._photo_points_vars.pop(index)
+        self._render_photo_rows()
 
     def _close_settings(self) -> None:
         win = self._settings_window
@@ -1715,7 +1863,7 @@ class AutoRenderUI(tk.Tk):
         self._track_control(button)
 
     def _update_row(self, parent: ttk.Frame, row: int) -> None:
-        ttk.Label(parent, text="Atualizacao ZIP", style="FieldLabel.TLabel").grid(row=row, column=0, sticky="w", pady=4)
+        ttk.Label(parent, text="Atualização ZIP", style="FieldLabel.TLabel").grid(row=row, column=0, sticky="w", pady=4)
         entry = ttk.Entry(parent, textvariable=self.vars["update_zip"])
         entry.grid(
             row=row, column=1, sticky="ew", pady=4, padx=(8, 6)
@@ -1729,6 +1877,12 @@ class AutoRenderUI(tk.Tk):
         load_btn = ttk.Button(actions, text="Carregar", command=self._load_update_zip)
         load_btn.pack(side="left")
         self._track_control(load_btn)
+        history_btn = ttk.Button(actions, text="Histórico", command=self._open_install_history)
+        history_btn.pack(side="left", padx=(4, 0))
+        self._track_control(history_btn)
+        restore_btn = ttk.Button(actions, text="Voltar versão", command=self._restore_previous_version)
+        restore_btn.pack(side="left", padx=(4, 0))
+        self._track_control(restore_btn)
 
     def _poll_path_health(self) -> None:
         latest: tuple[str, str, bool, bool] | None = None
@@ -1879,11 +2033,39 @@ class AutoRenderUI(tk.Tk):
         if value:
             self.vars["update_zip"].set(value)
 
+    def _open_install_history(self) -> None:
+        history = self.cfg.root_path() / HISTORY_DIR
+        history.mkdir(parents=True, exist_ok=True)
+        self._open_folder(history)
+
+    def _restore_previous_version(self) -> None:
+        if self._busy_lock.locked() or (self._auto_thread and self._auto_thread.is_alive()):
+            messagebox.showwarning("Restauração", "Pare o processamento antes de restaurar uma versão.")
+            return
+        launcher = self.cfg.root_path() / RESTORE_LAUNCHER
+        if not launcher.is_file():
+            messagebox.showwarning("Restauração", "Ainda não há uma versão salva para restaurar.")
+            return
+        if not messagebox.askyesno(
+            "Restaurar versão",
+            "O aplicativo será fechado e os arquivos da versão anterior serão restaurados. "
+            "Vídeos, preset, FFmpeg e configurações serão preservados. Continuar?",
+        ):
+            return
+        try:
+            subprocess.Popen(["cmd.exe", "/c", "start", "", str(launcher)], cwd=str(launcher.parent), shell=False)
+        except OSError as exc:
+            messagebox.showerror("Restauração", f"Não foi possível iniciar a restauração:\n{exc}")
+            return
+        self.after(500, self.destroy)
+
     def _load_update_zip(self) -> None:
         if self._busy_lock.locked() or (self._auto_thread and self._auto_thread.is_alive()):
             messagebox.showwarning("Atualizacao", "Pare o processamento antes de carregar uma atualizacao.")
             return
-        cfg = self._config_from_ui()
+        cfg = self._read_config_for_action()
+        if cfg is None:
+            return
         zip_path = self.vars["update_zip"].get().strip()
         if not zip_path:
             messagebox.showwarning("Atualizacao", "Selecione um arquivo .zip de atualizacao.")
@@ -1951,6 +2133,8 @@ class AutoRenderUI(tk.Tk):
         win.geometry(f"+{x}+{y}")
 
     def _config_from_ui(self) -> AppConfig:
+        photo_seconds = parse_photo_centers([point.get() for point in self._photo_points_vars])
+        photo_count = len(photo_seconds)
         self.cfg.input_dir = self.vars["input_dir"].get().strip()
         self.cfg.output_dir = self.vars["output_dir"].get().strip()
         self._apply_daily_vars_to_config()
@@ -1961,6 +2145,11 @@ class AutoRenderUI(tk.Tk):
         self.cfg.export.codec = self.vars["codec"].get()  # type: ignore[assignment]
         self.cfg.render_format = RENDER_FORMAT_VALUES.get(self.vars["render_format"].get(), "pair")  # type: ignore[assignment]
         self.cfg.parallel_workers = clamp_parallel_workers(self.vars["parallel_workers"].get())
+        self.cfg.photo_enabled = bool(self.vars["photo_enabled"].get())
+        self.cfg.photo_group_count = photo_count
+        self.cfg.photo_center_seconds = photo_seconds
+        self.vars["photo_group_count"].set(str(photo_count))
+        self.vars["photo_center_seconds"].set(", ".join(map(str, photo_seconds)))
         self.cfg.start_with_windows = bool(self.vars["start_with_windows"].get())
         self.cfg.auto_start_on_launch = bool(self.vars["auto_start_on_launch"].get())
         self.vars["parallel_workers"].set(str(self.cfg.parallel_workers))
@@ -1970,11 +2159,26 @@ class AutoRenderUI(tk.Tk):
         return self.cfg
 
     def _save_from_ui(self) -> None:
-        cfg = self._config_from_ui()
+        try:
+            cfg = self._config_from_ui()
+        except ValueError as exc:
+            if self._settings_window is not None and self._settings_window.winfo_exists():
+                self._show_settings_page("photos")
+            messagebox.showerror("Configuração de fotos", str(exc))
+            return
         save_config(cfg, self.config_path)
         self._write("Configuração salva.")
         ok, message = configure_start_with_windows(bool(getattr(cfg, "start_with_windows", False)))
         self._write(message)
+
+    def _read_config_for_action(self) -> AppConfig | None:
+        try:
+            return self._config_from_ui()
+        except ValueError as exc:
+            if self._settings_window is not None and self._settings_window.winfo_exists():
+                self._show_settings_page("photos")
+            messagebox.showerror("Configuração de fotos", str(exc))
+            return None
 
     def _set_status(self, msg: str) -> None:
         self.vars["status"].set(msg)
@@ -2163,7 +2367,13 @@ class AutoRenderUI(tk.Tk):
         if self._busy_lock.locked():
             self._write("Já existe um render em andamento.")
             return
-        cfg = self._config_from_ui()
+        cfg = self._read_config_for_action()
+        if cfg is None:
+            return
+        if not cfg.available_preset_paths():
+            messagebox.showwarning("Preset necessário", "Selecione um preset .MOV nas Configurações antes de renderizar.")
+            self._open_settings()
+            return
         save_config(cfg, self.config_path)
         self._stop_event.clear()
         self._set_processing_state(True)
@@ -2184,7 +2394,13 @@ class AutoRenderUI(tk.Tk):
         if self._auto_thread and self._auto_thread.is_alive():
             self._write("Auto já está rodando.")
             return
-        cfg = self._config_from_ui()
+        cfg = self._read_config_for_action()
+        if cfg is None:
+            return
+        if not cfg.available_preset_paths():
+            messagebox.showwarning("Preset necessário", "Selecione um preset .MOV nas Configurações antes de iniciar o Auto.")
+            self._open_settings()
+            return
         save_config(cfg, self.config_path)
         self._stop_event.clear()
         self._set_processing_state(True)
@@ -2223,13 +2439,17 @@ class AutoRenderUI(tk.Tk):
         self._write("Pedido de parada recebido.")
 
     def _open_logs(self) -> None:
-        cfg = self._config_from_ui()
+        cfg = self._read_config_for_action()
+        if cfg is None:
+            return
         cfg.logs_path.mkdir(parents=True, exist_ok=True)
         self._open_folder(cfg.logs_path)
         self._write(f"Pasta de logs aberta: {cfg.logs_path}")
 
     def _zip_logs(self) -> None:
-        cfg = self._config_from_ui()
+        cfg = self._read_config_for_action()
+        if cfg is None:
+            return
         cfg.logs_path.mkdir(parents=True, exist_ok=True)
         zip_path = cfg.logs_path / f"logs_autorender_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
         try:
